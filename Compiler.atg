@@ -1,0 +1,61 @@
+COMPILER SLXProject
+
+CHARACTERS
+  letter = 'A'..'Z' + 'a'..'z'.
+  digit = '0'..'9'.
+
+/*
+   While more tokens could be defined such as assignment ':=' , and '&&', or if,
+   I'll specify them in the parser as literals to keep my EBNF productions
+   looking similar as in the original assignment. Productions will be easier to read.
+*/
+
+TOKENS
+  identifier = letter {letter | digit}. /* Identifier must start with a letter to prevent ambiguity */
+  integer = digit { digit }. /* Negative numbers not possible in grammar. Also Interger size check implemented later in parser */
+
+IGNORE '\n' + '\r' /* Ignore LF CR */
+
+
+PRODUCTIONS
+
+SLXProject = MainFuncDecl.
+
+MainFuncDecl = "main" FuncBody.
+FuncBody= '{' VarDecl StatementList ReturnStatement '}'.
+VarDecl = [Type identifier ';' VarDecl].
+ReturnStatement = "return" Expr ';'.
+
+StatementList = [Statement StatementList].
+
+Statement = "if" '(' Expr ')' "then" Statement "else" Statement "fi" |
+            "repeat" Statement "until" '(' Expr ')' ';' |
+            "print" '(' Expr ')' ';' |
+            '{' StatementList '}' |
+            IdAccess ":=" Expr ';'.
+
+Expr = BaseExpr [Operation BaseExpr] |
+       '!' BaseExpr.
+
+/* New production for clarity */
+Operation = "&&" |
+            "||" |
+            '<'  |
+            '>'  |
+            '+'  |
+            '-'.
+
+BaseExpr = '(' Expr ')' |
+           IdAccess |
+           integer |
+           "true" |
+           "false" |
+           "read" '(' ')'.
+
+
+IdAccess = identifier.
+
+Type = "int" |
+       "boolean".
+
+END SLXProject.
