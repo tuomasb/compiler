@@ -7,8 +7,11 @@ public class Compiler implements SlxCompiler {
     Printer printer = new Printer(false);
     Scanner scanner = new Scanner(args[0]);
     Parser parser = new Parser(scanner);
+    parser.gen = new CodeGenerator();
+    parser.tab = new SymbolTable(parser);
     parser.Parse();
     System.out.println(parser.errors.count + " errors detected");
+    System.out.println(parser.gen.toString());
   }
 
   public boolean isErrors() {

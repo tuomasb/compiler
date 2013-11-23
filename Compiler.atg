@@ -1,4 +1,13 @@
+import fi.tkk.cs.tkkcc.slx.CommandWord;
+
 COMPILER SLXProject
+
+CodeGenerator gen;
+SymbolTable tab;
+
+public void d(String dbgString) {
+  System.out.println(dbgString);
+}
 
 CHARACTERS
   letter = 'A'..'Z' + 'a'..'z'.
@@ -19,43 +28,108 @@ IGNORE '\n' + '\r' /* Ignore LF CR */
 
 PRODUCTIONS
 
-SLXProject = MainFuncDecl.
 
-MainFuncDecl = "main" FuncBody.
-FuncBody= '{' VarDecl StatementList ReturnStatement '}'.
-VarDecl = [Type identifier ';' VarDecl].
-ReturnStatement = "return" Expr ';'.
-
-StatementList = [Statement StatementList].
-
-Statement = "if" '(' Expr ')' "then" Statement "else" Statement "fi" |
-            "repeat" Statement "until" '(' Expr ')' ';' |
-            "print" '(' Expr ')' ';' |
-            '{' StatementList '}' |
-            IdAccess ":=" Expr ';'.
-
-Expr = BaseExpr [Operation BaseExpr] |
-       '!' BaseExpr.
-
-/* New production for clarity */
-Operation = "&&" |
-            "||" |
-            '<'  |
-            '>'  |
-            '+'  |
-            '-'.
-
-BaseExpr = '(' Expr ')' |
-           IdAccess |
-           integer |
-           "true" |
-           "false" |
-           "read" '(' ')'.
+SLXProject
+=
+MainFuncDecl
+.
 
 
-IdAccess = identifier.
+MainFuncDecl
+=
+"main" FuncBody
+.
 
-Type = "int" |
-       "boolean".
+
+FuncBody
+=
+'{' VarDecl StatementList ReturnStatement '}'
+.
+
+
+VarDecl (. String ident; int type; .)
+=
+[Type<out type> 
+Ident<out ident> (. tab.NewObj(ident, type); d("Added object: " + ident); d(String.valueOf(type)); .)
+';' VarDecl]
+.
+
+
+ReturnStatement
+=
+"return" Expr ';'
+.
+
+
+StatementList
+=
+[Statement StatementList]
+.
+
+
+Statement (. Obj a; String ident; .)
+=
+"if" '(' Expr ')' "then" Statement "else" Statement "fi"
+| "repeat" Statement "until" '(' Expr ')' ';'
+| "print" '(' Expr ')' ';'
+| '{' StatementList '}'
+| IdAccess<out ident> ":=" Expr ';' (. d("Searching for: " + ident); a = tab.FindObj(ident); gen.emit(CommandWord.ENT, a.adr); gen.emit(CommandWord.STM); .)
+.
+
+
+Expr (. int type1, type2; String op; .)
+=
+(BaseExpr<out type1> [Operation<out op> BaseExpr<out type2> (.
+  if(type1 != type2) SemErr("Incompatible types");
+  /* Emulate && with 1==(a==b) */
+  if(op == "&&") { gen.emit(CommandWord.REQ); gen.emit(CommandWord.ENT, 1); gen.emit(CommandWord.REQ); }
+  if(op == "<") { gen.emit(CommandWord.RLT); }
+  if(op == ">") { gen.emit(CommandWord.RGT); }
+  if(op == "+") { gen.emit(CommandWord.ADD); }
+  if(op == "-") { gen.emit(CommandWord.SUB); }
+.) ]
+| '!' BaseExpr<out type1>)
+.
+
+
+Operation<out String op> (. op = "undef"; .)
+=
+"&&" (. op = t.val; d("Operation: " + op.toString()); .) 
+| '<' (. op = t.val; d("Operation: " + op.toString()); .) 
+| '>' (. op = t.val; d("Operation: " + op.toString()); .)
+| '+' (. op = t.val; d("Operation: " + op.toString()); .)
+| '-' (. op = t.val; d("Operation: " + op.toString()); .)
+.
+
+
+BaseExpr<out int type> (. int a; Obj b; String ident; type = 0; .)
+=
+'(' Expr ')'
+| IdAccess<out ident> (. b = tab.FindObj(ident); type = b.type; gen.emit(CommandWord.ENT, b.adr); gen.emit(CommandWord.LDM); .)
+| integer (. a = Integer.parseInt(t.val); type = 1; gen.emit(CommandWord.ENT, a); .)
+| "true" (. gen.emit(CommandWord.ENT, 1); type = 2; .)
+| "false" (. gen.emit(CommandWord.ENT, 0); type = 2; .)
+| "read" '(' ')' (. gen.emit(CommandWord.REA); type = 1; .)
+.
+
+
+IdAccess<out String ident>
+=
+identifier (. ident = t.val; d("Id access: " + t.val); .)
+.
+
+
+Type<out int type> (. type = 0; .)
+= 
+"int" (. type = 1; .)
+| "boolean" (. type = 2; .)
+.
+
+
+Ident<out String ident>
+=
+identifier (. ident = t.val; d("Id declare: " + t.val); .)
+.
+
 
 END SLXProject.
