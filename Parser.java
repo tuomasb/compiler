@@ -95,6 +95,7 @@ public void d(String dbgString) {
 	void MainFuncDecl() {
 		Expect(3);
 		FuncBody();
+		gen.emit(CommandWord.HLT); 
 	}
 
 	void FuncBody() {
@@ -124,8 +125,9 @@ public void d(String dbgString) {
 	}
 
 	void ReturnStatement() {
+		int type; 
 		Expect(7);
-		Expr();
+		type = Expr();
 		Expect(6);
 	}
 
@@ -149,54 +151,61 @@ public void d(String dbgString) {
 		return ident;
 	}
 
-	void Expr() {
-		int type1, type2; String op; 
+	int  Expr() {
+		int  type;
+		int type2, type3; String op; type = 0; 
 		if (StartOf(2)) {
-			type1 = BaseExpr();
+			type2 = BaseExpr();
 			if (StartOf(3)) {
 				op = Operation();
-				type2 = BaseExpr();
-				if(type1 != type2) SemErr("Incomparible types");
+				type3 = BaseExpr();
+				if(type2 != type3) SemErr("Incompatible types: " +  ((type2==1) ? "integer" : "boolean") + " and " + ((type3==1) ? "integer" : "boolean"));
 				/* Emulate && with 1==(a==b) */
-				if(op == "&&") { gen.emit(CommandWord.REQ); gen.emit(CommandWord.ENT, 1); gen.emit(CommandWord.REQ); }
-				if(op == "<") { gen.emit(CommandWord.RLT); }
-				if(op == ">") { gen.emit(CommandWord.RGT); }
-				if(op == "+") { gen.emit(CommandWord.ADD); }
-				if(op == "-") { gen.emit(CommandWord.SUB); }
+				if(op.equals("&&")) { gen.emit(CommandWord.REQ); gen.emit(CommandWord.ENT, 1); gen.emit(CommandWord.REQ); type = 2; }
+				if(op.equals("<")) { gen.emit(CommandWord.RLT); type = 2; }
+				if(op.equals(">")) { gen.emit(CommandWord.RGT); type = 2; }
+				if(op.equals("+")) { gen.emit(CommandWord.ADD); type = 1; }
+				if(op.equals("-")) { gen.emit(CommandWord.SUB); type = 1; }
 				
 			}
 		} else if (la.kind == 18) {
 			Get();
-			type1 = BaseExpr();
+			type2 = BaseExpr();
 		} else SynErr(31);
+		return type;
 	}
 
 	void Statement() {
-		Obj a; String ident; 
+		Obj a; String ident; int type; 
 		if (la.kind == 8) {
 			Get();
 			Expect(9);
-			Expr();
+			type = Expr();
 			Expect(10);
+			if(type!=2) SemErr("boolean type required"); gen.emit(CommandWord.ENT, 1); gen.emit(CommandWord.REQ); gen.emit(CommandWord.JZE, gen.lab); 
 			Expect(11);
 			Statement();
+			gen.emit(CommandWord.JMP, gen.lab + 1); 
 			Expect(12);
+			gen.emit(CommandWord.LAB, gen.lab); 
 			Statement();
 			Expect(13);
+			gen.emit(CommandWord.LAB, gen.lab); 
 		} else if (la.kind == 14) {
 			Get();
 			Statement();
 			Expect(15);
 			Expect(9);
-			Expr();
+			type = Expr();
 			Expect(10);
 			Expect(6);
 		} else if (la.kind == 16) {
 			Get();
 			Expect(9);
-			Expr();
+			type = Expr();
 			Expect(10);
 			Expect(6);
+			gen.emit(CommandWord.WRI); 
 		} else if (la.kind == 4) {
 			Get();
 			StatementList();
@@ -204,7 +213,7 @@ public void d(String dbgString) {
 		} else if (la.kind == 1) {
 			ident = IdAccess();
 			Expect(17);
-			Expr();
+			type = Expr();
 			Expect(6);
 			d("Searching for: " + ident); a = tab.FindObj(ident); gen.emit(CommandWord.ENT, a.adr); gen.emit(CommandWord.STM); 
 		} else SynErr(32);
@@ -219,11 +228,11 @@ public void d(String dbgString) {
 
 	int  BaseExpr() {
 		int  type;
-		int a; Obj b; String ident; type = 0; 
+		int a, type2; Obj b; String ident; type = 0; 
 		switch (la.kind) {
 		case 9: {
 			Get();
-			Expr();
+			type2 = Expr();
 			Expect(10);
 			break;
 		}

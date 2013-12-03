@@ -12,6 +12,8 @@ public class Compiler implements SlxCompiler {
     parser.Parse();
     System.out.println(parser.errors.count + " errors detected");
     System.out.println(parser.gen.toString());
+    Interpreter tulkki = new Interpreter(parser.gen.program, "5");
+    tulkki.execute(true, null);
   }
 
   public boolean isErrors() {

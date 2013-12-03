@@ -37,7 +37,7 @@ MainFuncDecl
 
 MainFuncDecl
 =
-"main" FuncBody
+"main" FuncBody (. gen.emit(CommandWord.HLT); .)
 .
 
 
@@ -54,10 +54,10 @@ Ident<out ident> (. tab.NewObj(ident, type); d("Added object: " + ident); d(Stri
 ';' VarDecl]
 .
 
-
-ReturnStatement
+/* Return value on top of the stack */
+ReturnStatement (. int type; .)
 =
-"return" Expr ';'
+"return" Expr<out type> ';'
 .
 
 
@@ -67,28 +67,33 @@ StatementList
 .
 
 
-Statement (. Obj a; String ident; .)
+Statement (. Obj a; String ident; int type; .)
 =
-"if" '(' Expr ')' "then" Statement "else" Statement "fi"
-| "repeat" Statement "until" '(' Expr ')' ';'
-| "print" '(' Expr ')' ';'
+"if" '(' Expr<out type> ')' (. if(type!=2) SemErr("boolean type required"); gen.emit(CommandWord.ENT, 1); gen.emit(CommandWord.REQ); gen.emit(CommandWord.JZE, gen.lab); .)
+"then"
+Statement (. gen.emit(CommandWord.JMP, gen.lab + 1); .) /* Jump over else Statement to end */
+"else" (. gen.emit(CommandWord.LAB, gen.lab); .)
+Statement "fi" (. gen.emit(CommandWord.LAB, gen.lab); .) /* End of if statement */
+| "repeat" Statement "until" '(' Expr<out type> ')' ';'
+| "print" '(' Expr<out type> ')' ';' (. gen.emit(CommandWord.WRI); .)
 | '{' StatementList '}'
-| IdAccess<out ident> ":=" Expr ';' (. d("Searching for: " + ident); a = tab.FindObj(ident); gen.emit(CommandWord.ENT, a.adr); gen.emit(CommandWord.STM); .)
+| IdAccess<out ident> ":=" Expr<out type> ';' (. d("Searching for: " + ident); a = tab.FindObj(ident); gen.emit(CommandWord.ENT, a.adr); gen.emit(CommandWord.STM); .)
 .
 
 
-Expr (. int type1, type2; String op; .)
+/* Different operations and type checking for them. Leave result on top of the stack */
+Expr<out int type> (. int type2, type3; String op; type = 0; .)
 =
-(BaseExpr<out type1> [Operation<out op> BaseExpr<out type2> (.
-  if(type1 != type2) SemErr("Incompatible types");
+(BaseExpr<out type2> [Operation<out op> BaseExpr<out type3> (.
+  if(type2 != type3) SemErr("Incompatible types: " +  ((type2==1) ? "integer" : "boolean") + " and " + ((type3==1) ? "integer" : "boolean"));
   /* Emulate && with 1==(a==b) */
-  if(op == "&&") { gen.emit(CommandWord.REQ); gen.emit(CommandWord.ENT, 1); gen.emit(CommandWord.REQ); }
-  if(op == "<") { gen.emit(CommandWord.RLT); }
-  if(op == ">") { gen.emit(CommandWord.RGT); }
-  if(op == "+") { gen.emit(CommandWord.ADD); }
-  if(op == "-") { gen.emit(CommandWord.SUB); }
+  if(op.equals("&&")) { gen.emit(CommandWord.REQ); gen.emit(CommandWord.ENT, 1); gen.emit(CommandWord.REQ); type = 2; }
+  if(op.equals("<")) { gen.emit(CommandWord.RLT); type = 2; }
+  if(op.equals(">")) { gen.emit(CommandWord.RGT); type = 2; }
+  if(op.equals("+")) { gen.emit(CommandWord.ADD); type = 1; }
+  if(op.equals("-")) { gen.emit(CommandWord.SUB); type = 1; }
 .) ]
-| '!' BaseExpr<out type1>)
+| '!' BaseExpr<out type2>)
 .
 
 
@@ -102,9 +107,9 @@ Operation<out String op> (. op = "undef"; .)
 .
 
 
-BaseExpr<out int type> (. int a; Obj b; String ident; type = 0; .)
+BaseExpr<out int type> (. int a, type2; Obj b; String ident; type = 0; .)
 =
-'(' Expr ')'
+'(' Expr<out type2> ')'
 | IdAccess<out ident> (. b = tab.FindObj(ident); type = b.type; gen.emit(CommandWord.ENT, b.adr); gen.emit(CommandWord.LDM); .)
 | integer (. a = Integer.parseInt(t.val); type = 1; gen.emit(CommandWord.ENT, a); .)
 | "true" (. gen.emit(CommandWord.ENT, 1); type = 2; .)
@@ -112,13 +117,15 @@ BaseExpr<out int type> (. int a; Obj b; String ident; type = 0; .)
 | "read" '(' ')' (. gen.emit(CommandWord.REA); type = 1; .)
 .
 
-
+/* IdAccess is for fetching identifiers from memory but we will generate the VM intructions at a later time
+   so until now we only need to bring out the name of the ID */
 IdAccess<out String ident>
 =
 identifier (. ident = t.val; d("Id access: " + t.val); .)
 .
 
-
+/* Type declaration, undefined = 0, integer = 1, boolean = 2
+   originally represented these with enum but it resulted in ugly code */
 Type<out int type> (. type = 0; .)
 = 
 "int" (. type = 1; .)
@@ -126,6 +133,8 @@ Type<out int type> (. type = 0; .)
 .
 
 
+/* Ident for variable declaration. Separate production for clarity. Need to bring out the name of the declared
+   variable and then Initialize it in upper productions (VarDecl production) */
 Ident<out String ident>
 =
 identifier (. ident = t.val; d("Id declare: " + t.val); .)
