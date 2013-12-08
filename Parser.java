@@ -186,7 +186,7 @@ public static final int STORE = 11;
 				SemErr("Invalid operation for type Boolean");
 				} else {
 				if(op == AND) {
-				/* SLX has no AND instruction se let's emulate it with a series of commands
+				/* SLX has no AND instruction so let's emulate it with a series of commands
 				tested to produce correct results with 0&&0=0 0&&1=0 1&&0=0 1&&1=1 */
 				gen.emit(CommandWord.NOT);
 				gen.emit(CommandWord.ENT, 1);

@@ -2,26 +2,25 @@ import fi.tkk.cs.tkkcc.*;
 import fi.tkk.cs.tkkcc.slx.*;
 
 public class Compiler implements SlxCompiler {
-  public static void main(String[] args) {
-    System.out.println("Parsing source file: " + args[0]);
-    Printer printer = new Printer(false);
-    Scanner scanner = new Scanner(args[0]);
-    Parser parser = new Parser(scanner);
-    parser.gen = new CodeGenerator();
-    parser.tab = new SymbolTable(parser);
-    parser.Parse();
-    System.out.println(parser.errors.count + " errors detected");
-    System.out.println(parser.gen.toString());
-    Interpreter tulkki = new Interpreter(parser.gen.program, "0");
-    tulkki.execute(true, null);
+
+  Scanner scanner;
+  Parser parser;
+  boolean errors;
+
+  public Compiler() {
   }
 
   public boolean isErrors() {
-    return false;
+    return errors;
   }
     
   public SlxProgram compile(String sourceFilename) {
-    return null;
+    scanner = new Scanner(sourceFilename);
+    parser = new Parser(scanner);
+    parser.gen = new CodeGenerator();
+    parser.tab = new SymbolTable(parser);
+    parser.Parse();
+    if(parser.errors.count > 0) { errors = false; }
+    return parser.gen.program;
   }
-
 }
