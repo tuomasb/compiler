@@ -5,16 +5,25 @@ COMPILER SLXProject
 CodeGenerator gen;
 SymbolTable tab;
 
-public void d(String dbgString) {
-  System.out.println(dbgString);
-}
+public static final int UNDEF = 0;
+public static final int INTEGER = 1;
+public static final int BOOL = 2;
+public static final int AND = 3;
+public static final int LT = 4;
+public static final int GT = 5;
+public static final int ADD = 6;
+public static final int SUB = 7;
+public static final int MUL = 8;
+public static final int DIV = 9;
+public static final int LOAD = 10;
+public static final int STORE = 11;
 
 CHARACTERS
   letter = 'A'..'Z' + 'a'..'z'.
   digit = '0'..'9'.
 
 /*
-   While more tokens could be defined such as assignment ':=' , and '&&', or if,
+   While more tokens could be defined such as assignment ':=' , and '&&', '+', '-' etc,
    I'll specify them in the parser as literals to keep my EBNF productions
    looking similar as in the original assignment. Productions will be easier to read.
 */
@@ -37,7 +46,7 @@ MainFuncDecl
 
 MainFuncDecl
 =
-"main" FuncBody (. gen.emit(CommandWord.HLT); .)
+"main" FuncBody (. gen.emit(CommandWord.HLT); .)	/* Halt the program after execution */
 .
 
 
@@ -47,14 +56,18 @@ FuncBody
 .
 
 
-VarDecl (. String ident; int type; .)
+VarDecl (. String name; int type; .)
 =
-[Type<out type> 
-Ident<out ident> (. tab.NewObj(ident, type); d("Added object: " + ident); d(String.valueOf(type)); .)
-';' VarDecl]
+{
+Type<out type> 
+Ident<out name>		(. if(tab.FindObj(name) != null) { SemErr("Symbol " + name + " already declared"); } /* Semantic error if symbol already exists in symbol table */
+			   else { tab.NewObj(name, type); } /* Otherwise insert into symbol table */ .)
+';'
+}
 .
 
-/* Return value on top of the stack */
+
+/* Return value on top of the stack, no need to do anything since Expr-production already does that */
 ReturnStatement (. int type; .)
 =
 "return" Expr<out type> ';'
@@ -67,78 +80,117 @@ StatementList
 .
 
 
-Statement (. Obj a; String ident; int type; .)
+Statement						(. Obj a; String name; int type; .)
 =
-"if" '(' Expr<out type> ')' (. if(type!=2) SemErr("boolean type required"); gen.emit(CommandWord.ENT, 1); gen.emit(CommandWord.REQ); gen.emit(CommandWord.JZE, gen.lab); .)
+"if" '(' Expr<out type> ')'				(. if(type!=BOOL) SemErr("Boolean type required for if-clause");
+							   gen.emit(CommandWord.JZE, gen.lab); /* If Expr value in the stack Equals 0, Jump to next emitted label */ .)
 "then"
-Statement (. gen.emit(CommandWord.JMP, gen.lab + 1); .) /* Jump over else Statement to end */
-"else" (. gen.emit(CommandWord.LAB, gen.lab); .)
-Statement "fi" (. gen.emit(CommandWord.LAB, gen.lab); .) /* End of if statement */
-| "repeat" Statement "until" '(' Expr<out type> ')' ';'
-| "print" '(' Expr<out type> ')' ';' (. gen.emit(CommandWord.WRI); .)
+Statement						(. gen.emit(CommandWord.JMP, gen.lab + 1); /* Expr did not equal zero, jump till the end after executing Statement code */ .)
+"else"							(. gen.emit(CommandWord.LAB, gen.lab); /* Label for "false" statement */ .)
+Statement "fi"						(. gen.emit(CommandWord.LAB, gen.lab); /* Label for end of if statement */ .)
+
+| "repeat"						(. gen.emit(CommandWord.LAB, gen.lab); /* Label for start of program code to be repeated */ .) 
+Statement
+"until" '(' Expr<out type> ')' ';'			(. /* If executing Statement puts 0 in the stack, jump back to label */
+							   gen.emit(CommandWord.JZE, gen.lab - 1); .)
+| "print" '(' Expr<out type> ')' ';' 			(. gen.emit(CommandWord.WRI); /* Emit write */ .)
 | '{' StatementList '}'
-| IdAccess<out ident> ":=" Expr<out type> ';' (. d("Searching for: " + ident); a = tab.FindObj(ident); gen.emit(CommandWord.ENT, a.adr); gen.emit(CommandWord.STM); .)
+| IdAccess<out name>					(. a = tab.FindObj(name); if(a != null) { gen.emit(CommandWord.ENT, a.adr); } /* Variable address from symbol table to stack */ .)
+":=" Expr<out type> ';'					(. if(a != null) { 
+								if(type != a.type) SemErr("Assigning incompatible type" + type + " " + a.type);
+								gen.emit(CommandWord.STM);
+							   } .)
 .
 
 
-/* Different operations and type checking for them. Leave result on top of the stack */
-Expr<out int type> (. int type2, type3; String op; type = 0; .)
+
+/* Different operations and type checking for them. Result will be left on top of the stack */
+Expr<out int type> (. int type2, type3, op; type = UNDEF; .)
 =
-(BaseExpr<out type2> [Operation<out op> BaseExpr<out type3> (.
-  if(type2 != type3) SemErr("Incompatible types: " +  ((type2==1) ? "integer" : "boolean") + " and " + ((type3==1) ? "integer" : "boolean"));
-  /* Emulate && with 1==(a==b) */
-  if(op.equals("&&")) { gen.emit(CommandWord.REQ); gen.emit(CommandWord.ENT, 1); gen.emit(CommandWord.REQ); type = 2; }
-  if(op.equals("<")) { gen.emit(CommandWord.RLT); type = 2; }
-  if(op.equals(">")) { gen.emit(CommandWord.RGT); type = 2; }
-  if(op.equals("+")) { gen.emit(CommandWord.ADD); type = 1; }
-  if(op.equals("-")) { gen.emit(CommandWord.SUB); type = 1; }
-.) ]
-| '!' BaseExpr<out type2>)
+BaseExpr<out type2>						(. type = type2; .)
+[Operation<out op> BaseExpr<out type3>				(. if(type2==INTEGER) {
+									if(type3==BOOL) { SemErr("Incompatible types in operation, expected type Integer"); }
+									else if(op == AND) { SemErr("Invalid operation for type Integer"); }
+                                                                        else {
+										if(op == ADD) { gen.emit(CommandWord.ADD); type = INTEGER; }
+										if(op == SUB) { gen.emit(CommandWord.SUB); type = INTEGER; }
+										if(op == MUL) { gen.emit(CommandWord.MUL); type = INTEGER; }
+										if(op == DIV) { gen.emit(CommandWord.DIV); type = INTEGER; }
+										if(op == LT) { gen.emit(CommandWord.RLT); type = BOOL; }
+										if(op == GT) { gen.emit(CommandWord.RGT); type = BOOL; }
+									}
+								   } else if(type2==BOOL) {
+									if(type3==INTEGER) { SemErr("Incompatible types in operation, expected type Boolean"); }
+									else if(op == ADD || op == SUB || op == MUL || op == DIV || op == LT || op == GT) {
+										SemErr("Invalid operation for type Boolean");
+									} else {
+										if(op == AND) {
+											/* SLX has no AND instruction se let's emulate it with a series of commands
+											   tested to produce correct results with 0&&0=0 0&&1=0 1&&0=0 1&&1=1 */
+											gen.emit(CommandWord.NOT);
+											gen.emit(CommandWord.ENT, 1);
+											gen.emit(CommandWord.ADD);
+											gen.emit(CommandWord.REQ);
+											type = BOOL;
+										}
+									}
+								   } .)
+] | '!' BaseExpr<out type2>					(. gen.emit(CommandWord.NOT); type = BOOL; .)
 .
 
 
-Operation<out String op> (. op = "undef"; .)
+/* New production for operation */
+Operation<out int op>	(. op = UNDEF; .)
 =
-"&&" (. op = t.val; d("Operation: " + op.toString()); .) 
-| '<' (. op = t.val; d("Operation: " + op.toString()); .) 
-| '>' (. op = t.val; d("Operation: " + op.toString()); .)
-| '+' (. op = t.val; d("Operation: " + op.toString()); .)
-| '-' (. op = t.val; d("Operation: " + op.toString()); .)
+"&&" 			(. op = AND; .) 
+| '<'			(. op = LT; .) 
+| '>'			(. op = GT; .)
+| '+'			(. op = ADD; .)
+| '-'			(. op = SUB; .)
+| '*'			(. op = MUL; .)
+| '/'			(. op = DIV; .)
 .
 
 
-BaseExpr<out int type> (. int a, type2; Obj b; String ident; type = 0; .)
+BaseExpr<out int type>		(. int type2; Obj a; String name; type = UNDEF; .)
 =
-'(' Expr<out type2> ')'
-| IdAccess<out ident> (. b = tab.FindObj(ident); type = b.type; gen.emit(CommandWord.ENT, b.adr); gen.emit(CommandWord.LDM); .)
-| integer (. a = Integer.parseInt(t.val); type = 1; gen.emit(CommandWord.ENT, a); .)
-| "true" (. gen.emit(CommandWord.ENT, 1); type = 2; .)
-| "false" (. gen.emit(CommandWord.ENT, 0); type = 2; .)
-| "read" '(' ')' (. gen.emit(CommandWord.REA); type = 1; .)
+'(' Expr<out type> ')'
+| IdAccess<out name>		(. a = tab.FindObj(name); if(a != null) { type = a.type; gen.emit(CommandWord.ENT, a.adr); gen.emit(CommandWord.LDM); } .)
+| Integer			(. type = INTEGER; .)
+| Boolean			(. type = BOOL; .)
+| "read" '(' ')'		(. gen.emit(CommandWord.REA); type = INTEGER; .)
 .
 
-/* IdAccess is for fetching identifiers from memory but we will generate the VM intructions at a later time
-   so until now we only need to bring out the name of the ID */
-IdAccess<out String ident>
+IdAccess<out String name>	(. Obj a;  .)
 =
-identifier (. ident = t.val; d("Id access: " + t.val); .)
+Ident<out name>			(. a = tab.FindObj(name); if(a == null) { SemErr("Undeclared variable: " + name); } /* Less code to do this here */ .)
 .
 
-/* Type declaration, undefined = 0, integer = 1, boolean = 2
-   originally represented these with enum but it resulted in ugly code */
-Type<out int type> (. type = 0; .)
+Type<out int type>		(. type = UNDEF; .)
 = 
-"int" (. type = 1; .)
-| "boolean" (. type = 2; .)
+"int"				(. type = INTEGER; .)
+| "boolean"			(. type = BOOL; .)
 .
 
 
-/* Ident for variable declaration. Separate production for clarity. Need to bring out the name of the declared
-   variable and then Initialize it in upper productions (VarDecl production) */
-Ident<out String ident>
+/* Ident for variable declaration. Separate production for clarity. */
+Ident<out String name>
 =
-identifier (. ident = t.val; d("Id declare: " + t.val); .)
+identifier			(. name = t.val; .)
 .
 
+/* New production for integer */
+Integer				(. int temp = 0; .)
+=
+integer				(. try { temp = Integer.parseInt(t.val); gen.emit(CommandWord.ENT, temp); /* Try to parse Integer */
+				   } catch(Exception e) { SemErr("Integer overflow: " + temp); } /* Exception generated. Cannot parse Integer */ .)
+.
+
+/* New production for boolean */
+Boolean
+=
+"true"		(. gen.emit(CommandWord.ENT, 1); .)
+| "false"	(. gen.emit(CommandWord.ENT, 0); .)
+.
 
 END SLXProject.

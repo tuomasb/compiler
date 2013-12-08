@@ -8,7 +8,7 @@ public class Parser {
 	public static final int _EOF = 0;
 	public static final int _identifier = 1;
 	public static final int _integer = 2;
-	public static final int maxT = 29;
+	public static final int maxT = 31;
 
 	static final boolean T = true;
 	static final boolean x = false;
@@ -24,9 +24,18 @@ public class Parser {
 	CodeGenerator gen;
 SymbolTable tab;
 
-public void d(String dbgString) {
-  System.out.println(dbgString);
-}
+public static final int UNDEF = 0;
+public static final int INTEGER = 1;
+public static final int BOOL = 2;
+public static final int AND = 3;
+public static final int LT = 4;
+public static final int GT = 5;
+public static final int ADD = 6;
+public static final int SUB = 7;
+public static final int MUL = 8;
+public static final int DIV = 9;
+public static final int LOAD = 10;
+public static final int STORE = 11;
 
 
 
@@ -107,13 +116,13 @@ public void d(String dbgString) {
 	}
 
 	void VarDecl() {
-		String ident; int type; 
-		if (la.kind == 27 || la.kind == 28) {
+		String name; int type; 
+		while (la.kind == 27 || la.kind == 28) {
 			type = Type();
-			ident = Ident();
-			tab.NewObj(ident, type); d("Added object: " + ident); d(String.valueOf(type)); 
+			name = Ident();
+			if(tab.FindObj(name) != null) { SemErr("Symbol " + name + " already declared"); } /* Semantic error if symbol already exists in symbol table */
+			else { tab.NewObj(name, type); } /* Otherwise insert into symbol table */ 
 			Expect(6);
-			VarDecl();
 		}
 	}
 
@@ -133,161 +142,212 @@ public void d(String dbgString) {
 
 	int  Type() {
 		int  type;
-		type = 0; 
+		type = UNDEF; 
 		if (la.kind == 27) {
 			Get();
-			type = 1; 
+			type = INTEGER; 
 		} else if (la.kind == 28) {
 			Get();
-			type = 2; 
-		} else SynErr(30);
+			type = BOOL; 
+		} else SynErr(32);
 		return type;
 	}
 
 	String  Ident() {
-		String  ident;
+		String  name;
 		Expect(1);
-		ident = t.val; d("Id declare: " + t.val); 
-		return ident;
+		name = t.val; 
+		return name;
 	}
 
 	int  Expr() {
 		int  type;
-		int type2, type3; String op; type = 0; 
+		int type2, type3, op; type = UNDEF; 
 		if (StartOf(2)) {
 			type2 = BaseExpr();
+			type = type2; 
 			if (StartOf(3)) {
 				op = Operation();
 				type3 = BaseExpr();
-				if(type2 != type3) SemErr("Incompatible types: " +  ((type2==1) ? "integer" : "boolean") + " and " + ((type3==1) ? "integer" : "boolean"));
-				/* Emulate && with 1==(a==b) */
-				if(op.equals("&&")) { gen.emit(CommandWord.REQ); gen.emit(CommandWord.ENT, 1); gen.emit(CommandWord.REQ); type = 2; }
-				if(op.equals("<")) { gen.emit(CommandWord.RLT); type = 2; }
-				if(op.equals(">")) { gen.emit(CommandWord.RGT); type = 2; }
-				if(op.equals("+")) { gen.emit(CommandWord.ADD); type = 1; }
-				if(op.equals("-")) { gen.emit(CommandWord.SUB); type = 1; }
-				
+				if(type2==INTEGER) {
+				if(type3==BOOL) { SemErr("Incompatible types in operation, expected type Integer"); }
+				else if(op == AND) { SemErr("Invalid operation for type Integer"); }
+				                          else {
+				if(op == ADD) { gen.emit(CommandWord.ADD); type = INTEGER; }
+				if(op == SUB) { gen.emit(CommandWord.SUB); type = INTEGER; }
+				if(op == MUL) { gen.emit(CommandWord.MUL); type = INTEGER; }
+				if(op == DIV) { gen.emit(CommandWord.DIV); type = INTEGER; }
+				if(op == LT) { gen.emit(CommandWord.RLT); type = BOOL; }
+				if(op == GT) { gen.emit(CommandWord.RGT); type = BOOL; }
+				}
+				} else if(type2==BOOL) {
+				if(type3==INTEGER) { SemErr("Incompatible types in operation, expected type Boolean"); }
+				else if(op == ADD || op == SUB || op == MUL || op == DIV || op == LT || op == GT) {
+				SemErr("Invalid operation for type Boolean");
+				} else {
+				if(op == AND) {
+				/* SLX has no AND instruction se let's emulate it with a series of commands
+				tested to produce correct results with 0&&0=0 0&&1=0 1&&0=0 1&&1=1 */
+				gen.emit(CommandWord.NOT);
+				gen.emit(CommandWord.ENT, 1);
+				gen.emit(CommandWord.ADD);
+				gen.emit(CommandWord.REQ);
+				type = BOOL;
+				}
+				}
+				} 
 			}
 		} else if (la.kind == 18) {
 			Get();
 			type2 = BaseExpr();
-		} else SynErr(31);
+			gen.emit(CommandWord.NOT); type = BOOL; 
+		} else SynErr(33);
 		return type;
 	}
 
 	void Statement() {
-		Obj a; String ident; int type; 
+		Obj a; String name; int type; 
 		if (la.kind == 8) {
 			Get();
 			Expect(9);
 			type = Expr();
 			Expect(10);
-			if(type!=2) SemErr("boolean type required"); gen.emit(CommandWord.ENT, 1); gen.emit(CommandWord.REQ); gen.emit(CommandWord.JZE, gen.lab); 
+			if(type!=BOOL) SemErr("Boolean type required for if-clause");
+			gen.emit(CommandWord.JZE, gen.lab); /* If Expr value in the stack Equals 0, Jump to next emitted label */ 
 			Expect(11);
 			Statement();
-			gen.emit(CommandWord.JMP, gen.lab + 1); 
+			gen.emit(CommandWord.JMP, gen.lab + 1); /* Expr did not equal zero, jump till the end after executing Statement code */ 
 			Expect(12);
-			gen.emit(CommandWord.LAB, gen.lab); 
+			gen.emit(CommandWord.LAB, gen.lab); /* Label for "false" statement */ 
 			Statement();
 			Expect(13);
-			gen.emit(CommandWord.LAB, gen.lab); 
+			gen.emit(CommandWord.LAB, gen.lab); /* Label for end of if statement */ 
 		} else if (la.kind == 14) {
 			Get();
+			gen.emit(CommandWord.LAB, gen.lab); /* Label for start of program code to be repeated */ 
 			Statement();
 			Expect(15);
 			Expect(9);
 			type = Expr();
 			Expect(10);
 			Expect(6);
+			gen.emit(CommandWord.JZE, gen.lab - 1); 
 		} else if (la.kind == 16) {
 			Get();
 			Expect(9);
 			type = Expr();
 			Expect(10);
 			Expect(6);
-			gen.emit(CommandWord.WRI); 
+			gen.emit(CommandWord.WRI); /* Emit write */ 
 		} else if (la.kind == 4) {
 			Get();
 			StatementList();
 			Expect(5);
 		} else if (la.kind == 1) {
-			ident = IdAccess();
+			name = IdAccess();
+			a = tab.FindObj(name); if(a != null) { gen.emit(CommandWord.ENT, a.adr); } /* Variable address from symbol table to stack */ 
 			Expect(17);
 			type = Expr();
 			Expect(6);
-			d("Searching for: " + ident); a = tab.FindObj(ident); gen.emit(CommandWord.ENT, a.adr); gen.emit(CommandWord.STM); 
-		} else SynErr(32);
+			if(a != null) { 
+			if(type != a.type) SemErr("Assigning incompatible type" + type + " " + a.type);
+			gen.emit(CommandWord.STM);
+			} 
+		} else SynErr(34);
 	}
 
 	String  IdAccess() {
-		String  ident;
-		Expect(1);
-		ident = t.val; d("Id access: " + t.val); 
-		return ident;
+		String  name;
+		Obj a;  
+		name = Ident();
+		a = tab.FindObj(name); if(a == null) { SemErr("Undeclared variable: " + name); } /* Less code to do this here */ 
+		return name;
 	}
 
 	int  BaseExpr() {
 		int  type;
-		int a, type2; Obj b; String ident; type = 0; 
-		switch (la.kind) {
-		case 9: {
+		int type2; Obj a; String name; type = UNDEF; 
+		if (la.kind == 9) {
 			Get();
-			type2 = Expr();
+			type = Expr();
 			Expect(10);
-			break;
-		}
-		case 1: {
-			ident = IdAccess();
-			b = tab.FindObj(ident); type = b.type; gen.emit(CommandWord.ENT, b.adr); gen.emit(CommandWord.LDM); 
-			break;
-		}
-		case 2: {
+		} else if (la.kind == 1) {
+			name = IdAccess();
+			a = tab.FindObj(name); if(a != null) { type = a.type; gen.emit(CommandWord.ENT, a.adr); gen.emit(CommandWord.LDM); } 
+		} else if (la.kind == 2) {
+			Integer();
+			type = INTEGER; 
+		} else if (la.kind == 29 || la.kind == 30) {
+			Boolean();
+			type = BOOL; 
+		} else if (la.kind == 26) {
 			Get();
-			a = Integer.parseInt(t.val); type = 1; gen.emit(CommandWord.ENT, a); 
+			Expect(9);
+			Expect(10);
+			gen.emit(CommandWord.REA); type = INTEGER; 
+		} else SynErr(35);
+		return type;
+	}
+
+	int  Operation() {
+		int  op;
+		op = UNDEF; 
+		switch (la.kind) {
+		case 19: {
+			Get();
+			op = AND; 
+			break;
+		}
+		case 20: {
+			Get();
+			op = LT; 
+			break;
+		}
+		case 21: {
+			Get();
+			op = GT; 
+			break;
+		}
+		case 22: {
+			Get();
+			op = ADD; 
+			break;
+		}
+		case 23: {
+			Get();
+			op = SUB; 
 			break;
 		}
 		case 24: {
 			Get();
-			gen.emit(CommandWord.ENT, 1); type = 2; 
+			op = MUL; 
 			break;
 		}
 		case 25: {
 			Get();
-			gen.emit(CommandWord.ENT, 0); type = 2; 
+			op = DIV; 
 			break;
 		}
-		case 26: {
-			Get();
-			Expect(9);
-			Expect(10);
-			gen.emit(CommandWord.REA); type = 1; 
-			break;
+		default: SynErr(36); break;
 		}
-		default: SynErr(33); break;
-		}
-		return type;
+		return op;
 	}
 
-	String  Operation() {
-		String  op;
-		op = "undef"; 
-		if (la.kind == 19) {
+	void Integer() {
+		int temp = 0; 
+		Expect(2);
+		try { temp = Integer.parseInt(t.val); gen.emit(CommandWord.ENT, temp); /* Try to parse Integer */
+		} catch(Exception e) { SemErr("Integer overflow: " + temp); } /* Exception generated. Cannot parse Integer */ 
+	}
+
+	void Boolean() {
+		if (la.kind == 29) {
 			Get();
-			op = t.val; d("Operation: " + op.toString()); 
-		} else if (la.kind == 20) {
+			gen.emit(CommandWord.ENT, 1); 
+		} else if (la.kind == 30) {
 			Get();
-			op = t.val; d("Operation: " + op.toString()); 
-		} else if (la.kind == 21) {
-			Get();
-			op = t.val; d("Operation: " + op.toString()); 
-		} else if (la.kind == 22) {
-			Get();
-			op = t.val; d("Operation: " + op.toString()); 
-		} else if (la.kind == 23) {
-			Get();
-			op = t.val; d("Operation: " + op.toString()); 
-		} else SynErr(34);
-		return op;
+			gen.emit(CommandWord.ENT, 0); 
+		} else SynErr(37);
 	}
 
 
@@ -302,10 +362,10 @@ public void d(String dbgString) {
 	}
 
 	private static final boolean[][] set = {
-		{T,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x},
-		{x,T,x,x, T,x,x,x, T,x,x,x, x,x,T,x, T,x,x,x, x,x,x,x, x,x,x,x, x,x,x},
-		{x,T,T,x, x,x,x,x, x,T,x,x, x,x,x,x, x,x,x,x, x,x,x,x, T,T,T,x, x,x,x},
-		{x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,T, T,T,T,T, x,x,x,x, x,x,x}
+		{T,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x},
+		{x,T,x,x, T,x,x,x, T,x,x,x, x,x,T,x, T,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x},
+		{x,T,T,x, x,x,x,x, x,T,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,T,x, x,T,T,x, x},
+		{x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,x, x,x,x,T, T,T,T,T, T,T,x,x, x,x,x,x, x}
 
 	};
 } // end Parser
@@ -354,17 +414,20 @@ class Errors {
 			case 21: s = "\">\" expected"; break;
 			case 22: s = "\"+\" expected"; break;
 			case 23: s = "\"-\" expected"; break;
-			case 24: s = "\"true\" expected"; break;
-			case 25: s = "\"false\" expected"; break;
+			case 24: s = "\"*\" expected"; break;
+			case 25: s = "\"/\" expected"; break;
 			case 26: s = "\"read\" expected"; break;
 			case 27: s = "\"int\" expected"; break;
 			case 28: s = "\"boolean\" expected"; break;
-			case 29: s = "??? expected"; break;
-			case 30: s = "invalid Type"; break;
-			case 31: s = "invalid Expr"; break;
-			case 32: s = "invalid Statement"; break;
-			case 33: s = "invalid BaseExpr"; break;
-			case 34: s = "invalid Operation"; break;
+			case 29: s = "\"true\" expected"; break;
+			case 30: s = "\"false\" expected"; break;
+			case 31: s = "??? expected"; break;
+			case 32: s = "invalid Type"; break;
+			case 33: s = "invalid Expr"; break;
+			case 34: s = "invalid Statement"; break;
+			case 35: s = "invalid BaseExpr"; break;
+			case 36: s = "invalid Operation"; break;
+			case 37: s = "invalid Boolean"; break;
 			default: s = "error " + n; break;
 		}
 		printMsg(line, col, s);

@@ -12,7 +12,7 @@ public class Compiler implements SlxCompiler {
     parser.Parse();
     System.out.println(parser.errors.count + " errors detected");
     System.out.println(parser.gen.toString());
-    Interpreter tulkki = new Interpreter(parser.gen.program, "5");
+    Interpreter tulkki = new Interpreter(parser.gen.program, "0");
     tulkki.execute(true, null);
   }
 

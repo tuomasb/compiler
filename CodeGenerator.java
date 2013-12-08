@@ -2,6 +2,7 @@ import fi.tkk.cs.tkkcc.slx.*;
 
 public class CodeGenerator {
 
+  /* Simple code generator. Mostly a proxy class fro SlxProgram but keeps track of labels */
   public int lab;
   public SlxProgram program = new SlxProgram();
 
