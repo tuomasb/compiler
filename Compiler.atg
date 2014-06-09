@@ -5,6 +5,7 @@ COMPILER SLXProject
 CodeGenerator gen;
 SymbolTable tab;
 
+
 public static final int UNDEF = 0;
 public static final int INTEGER = 1;
 public static final int BOOL = 2;
@@ -29,7 +30,7 @@ CHARACTERS
 */
 
 TOKENS
-  identifier = letter {letter | digit}. /* Identifier must start with a letter to prevent ambiguity */
+  identifier = letter {letter | digit | '_'}. /* Identifier must start with a letter to prevent ambiguity */
   integer = digit { digit }. /* Negative numbers not possible in grammar. Also Interger size check implemented later in parser */
 
 IGNORE '\n' + '\r' /* Ignore LF CR */
@@ -97,7 +98,7 @@ Statement
 | '{' StatementList '}'
 | IdAccess<out name>					(. a = tab.FindObj(name); if(a != null) { gen.emit(CommandWord.ENT, a.adr); } /* Variable address from symbol table to stack */ .)
 ":=" Expr<out type> ';'					(. if(a != null) { 
-								if(type != a.type) SemErr("Assigning incompatible type" + type + " " + a.type);
+								if(type != a.type) SemErr("Assigning incompatible type");
 								gen.emit(CommandWord.STM);
 							   } .)
 .
@@ -109,8 +110,8 @@ Expr<out int type> (. int type2, type3, op; type = UNDEF; .)
 =
 BaseExpr<out type2>						(. type = type2; .)
 [Operation<out op> BaseExpr<out type3>				(. if(type2==INTEGER) {
-									if(type3==BOOL) { SemErr("Incompatible types in operation, expected type Integer"); }
-									else if(op == AND) { SemErr("Invalid operation for type Integer"); }
+									if(type3==BOOL) { SemErr("Incompatible types Integer and Boolean in operation, expected type Integer and Integer"); }
+									else if(op == AND) { SemErr("Invalid operation for types Integer and Integer"); }
                                                                         else {
 										if(op == ADD) { gen.emit(CommandWord.ADD); type = INTEGER; }
 										if(op == SUB) { gen.emit(CommandWord.SUB); type = INTEGER; }
@@ -120,9 +121,9 @@ BaseExpr<out type2>						(. type = type2; .)
 										if(op == GT) { gen.emit(CommandWord.RGT); type = BOOL; }
 									}
 								   } else if(type2==BOOL) {
-									if(type3==INTEGER) { SemErr("Incompatible types in operation, expected type Boolean"); }
+									if(type3==INTEGER) { SemErr("Incompatible types Boolean and Integer in operation, expected type Boolean and Boolean"); }
 									else if(op == ADD || op == SUB || op == MUL || op == DIV || op == LT || op == GT) {
-										SemErr("Invalid operation for type Boolean");
+										SemErr("Invalid operation for types Boolean and Boolean");
 									} else {
 										if(op == AND) {
 											/* SLX has no AND instruction so let's emulate it with a series of commands
@@ -183,7 +184,7 @@ identifier			(. name = t.val; .)
 Integer				(. int temp = 0; .)
 =
 integer				(. try { temp = Integer.parseInt(t.val); gen.emit(CommandWord.ENT, temp); /* Try to parse Integer */
-				   } catch(Exception e) { SemErr("Integer overflow: " + temp); } /* Exception generated. Cannot parse Integer */ .)
+				   } catch(Exception e) { SemErr("Integer overflow"); } /* Exception generated. Cannot parse Integer */ .)
 .
 
 /* New production for boolean */

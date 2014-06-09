@@ -24,6 +24,7 @@ public class Parser {
 	CodeGenerator gen;
 SymbolTable tab;
 
+
 public static final int UNDEF = 0;
 public static final int INTEGER = 1;
 public static final int BOOL = 2;
@@ -170,8 +171,8 @@ public static final int STORE = 11;
 				op = Operation();
 				type3 = BaseExpr();
 				if(type2==INTEGER) {
-				if(type3==BOOL) { SemErr("Incompatible types in operation, expected type Integer"); }
-				else if(op == AND) { SemErr("Invalid operation for type Integer"); }
+				if(type3==BOOL) { SemErr("Incompatible types Integer and Boolean in operation, expected type Integer and Integer"); }
+				else if(op == AND) { SemErr("Invalid operation for types Integer and Integer"); }
 				                          else {
 				if(op == ADD) { gen.emit(CommandWord.ADD); type = INTEGER; }
 				if(op == SUB) { gen.emit(CommandWord.SUB); type = INTEGER; }
@@ -181,9 +182,9 @@ public static final int STORE = 11;
 				if(op == GT) { gen.emit(CommandWord.RGT); type = BOOL; }
 				}
 				} else if(type2==BOOL) {
-				if(type3==INTEGER) { SemErr("Incompatible types in operation, expected type Boolean"); }
+				if(type3==INTEGER) { SemErr("Incompatible types Boolean and Integer in operation, expected type Boolean and Boolean"); }
 				else if(op == ADD || op == SUB || op == MUL || op == DIV || op == LT || op == GT) {
-				SemErr("Invalid operation for type Boolean");
+				SemErr("Invalid operation for types Boolean and Boolean");
 				} else {
 				if(op == AND) {
 				/* SLX has no AND instruction so let's emulate it with a series of commands
@@ -250,7 +251,7 @@ public static final int STORE = 11;
 			type = Expr();
 			Expect(6);
 			if(a != null) { 
-			if(type != a.type) SemErr("Assigning incompatible type" + type + " " + a.type);
+			if(type != a.type) SemErr("Assigning incompatible type");
 			gen.emit(CommandWord.STM);
 			} 
 		} else SynErr(34);
@@ -337,7 +338,7 @@ public static final int STORE = 11;
 		int temp = 0; 
 		Expect(2);
 		try { temp = Integer.parseInt(t.val); gen.emit(CommandWord.ENT, temp); /* Try to parse Integer */
-		} catch(Exception e) { SemErr("Integer overflow: " + temp); } /* Exception generated. Cannot parse Integer */ 
+		} catch(Exception e) { SemErr("Integer overflow"); } /* Exception generated. Cannot parse Integer */ 
 	}
 
 	void Boolean() {

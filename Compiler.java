@@ -20,7 +20,8 @@ public class Compiler implements SlxCompiler {
     parser.gen = new CodeGenerator();
     parser.tab = new SymbolTable(parser);
     parser.Parse();
-    if(parser.errors.count > 0) { errors = false; }
+    if(parser.errors.count > 0) { errors = true; }
+    if(parser.errors.count == 0) { errors = false; } /* In case same instance is used to compile multiple programs */
     return parser.gen.program;
   }
 }
